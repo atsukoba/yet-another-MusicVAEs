@@ -12,11 +12,13 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
 from src.config import MusicVAEConfig
-from src.utils import InstrumentTarget, get_multitrack_n_bars, extract_target_part
+from src.utils import (InstrumentTarget, extract_target_part,
+                       get_multitrack_n_bars)
 
 
-def _valid_midi_file(midi: MidiFile):
-    pass
+def _valid_midi_file(midi: MidiFile) -> bool:
+    # TODO: set the definition of valid midi object
+    return True
 
 
 def _tokenize_midi_file(tokenizer: MIDITokenizer,
@@ -30,11 +32,12 @@ def _tokenize_midi_file(tokenizer: MIDITokenizer,
         tokens: List[List[int]] = []
         midi_samples: List[MidiFile] = []
         for m in midi:
-            midi_samples += get_multitrack_n_bars(tokenizer,
-                                                  m,
-                                                  n_bars=n_bars,
-                                                  n_bars_stride=n_bars//2,
-                                                  n_notes_threshold=4)
+            if _valid_midi_file(m):
+                midi_samples += get_multitrack_n_bars(tokenizer,
+                                                      m,
+                                                      n_bars=n_bars,
+                                                      n_bars_stride=n_bars//2,
+                                                      n_notes_threshold=4)
         for sample in midi_samples:
             tokens.append(tokenizer.midi_to_tokens(sample))  # type: ignore
         return tokens
@@ -63,8 +66,11 @@ class MidiDataset(Dataset):
             with tqdm(total=len(self.midi_pathes)) as progress:
                 futures: List[Future] = []
                 for path in self.midi_pathes:
-                    future = pool.submit(
-                        _tokenize_midi_file, tokenizer, path, self.bar_length, target_track)
+                    future = pool.submit(_tokenize_midi_file,
+                                         tokenizer,
+                                         path,
+                                         self.bar_length,
+                                         target_track)
                     future.add_done_callback(lambda p: progress.update())
                     futures.append(future)
                 for future in futures:
@@ -76,7 +82,7 @@ class MidiDataset(Dataset):
         return {"input_ids": torch.tensor(self.all_tokens[idx])}
 
     def __len__(self):
-        return len(self.midi_pathes)
+        return len(self.all_tokens)
 
 
 class MidiDataModule(LightningDataModule):
@@ -99,8 +105,8 @@ class MidiDataModule(LightningDataModule):
         # create tokenizer
         self.tokenizer = self.conf.tokenizer_class()
         self.dataset = MidiDataset(self.midi_pathes, self.tokenizer)
-        n_train, n_val = int(len(self.dataset) *
-                             0.7), int(len(self.dataset) * 0.2)
+        n_train = int(len(self.dataset) * 0.7)
+        n_val = int(len(self.dataset) * 0.2)
         n_test = len(self.dataset) - (n_train + n_val)
         self.dataset_train, self.dataset_val, self.dataset_test = random_split(
             self.dataset, [n_train, n_val, n_test])
