@@ -44,15 +44,15 @@ def extract_drums(song: MidiFile) -> Optional[List[MidiFile]]:
 def extract_target_part(song: MidiFile,
                         target: InstrumentTarget) -> Optional[List[MidiFile]]:
     if target == "melody":
-        target_names = ["Piano", "Synth Lead"]
+        target_names = ["Piano", "Synth Lead", "Organ"]
     elif target == "bass":
         target_names = ["Bass"]
     else:
         return
     target_programs = []
     for target_name in target_names:
-        target_programs += list(range(INSTRUMENT_CLASSES_RANGES[target_name]))
-    target_programs = list(set(target_programs))
+        target_range = INSTRUMENT_CLASSES_RANGES[target_name]
+        target_programs += list(range(target_range[0], target_range[1]+1))
     extracted_midi: List[MidiFile] = []
     for inst in song.instruments:
         if inst.program in target_programs:

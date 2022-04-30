@@ -2,7 +2,10 @@ import multiprocessing as mp
 import os
 from concurrent.futures import Future, ProcessPoolExecutor
 from glob import glob
+from random import shuffle
 from typing import Dict, List, Optional, Tuple, Type
+from numpy import rec
+from sklearn.semi_supervised import SelfTrainingClassifier
 
 import torch
 from miditok import MIDITokenizer
@@ -42,7 +45,7 @@ def _tokenize_midi_file(tokenizer: MIDITokenizer,
             tokens.append(tokenizer.midi_to_tokens(sample))  # type: ignore
         return tokens
     except Exception as e:
-        print(e)
+        # print(e)
         return
 
 
@@ -57,7 +60,7 @@ class MidiDataset(Dataset):
         self.bar_length = bar_length
         self.target_track = target_track
 
-        assert len(tokenizer.vocab.tokens_of_type("Bar")) > 1,\
+        assert len(tokenizer.vocab.tokens_of_type("Bar")) > 0,\
             "input tokenizer doesn't have Bar tokens"
 
         self.all_tokens: List[List[int]] = []
@@ -86,24 +89,32 @@ class MidiDataset(Dataset):
 
 
 class MidiDataModule(LightningDataModule):
-    def __init__(self, conf: MusicVAEConfig,
-                 batch_size: int = 32):
+    def __init__(self,
+                 tokenizer: MIDITokenizer,
+                 conf: MusicVAEConfig,
+                 batch_size: int = 32,
+                 shuffle_data_pathes: bool = False,
+                 max_n_midi_files: Optional[int] = None):
         super().__init__()
+        self.tokenizer = tokenizer
         self.conf = conf
-        self.batch_size = batch_size
         self.midi_pathes: List[str] = []
+        self.batch_size = batch_size
+        self.shuffle_data_pathes = shuffle_data_pathes
+        self.max_n_midi_files = max_n_midi_files or conf.hparams.max_midi_files
 
     def prepare_data(self) -> None:
         # load data
         self.midi_pathes = glob(os.path.join(
-            self.conf.dataset_dir, "**", "*.mid"))
+            self.conf.dataset_dir, "**", "*.mid"), recursive=True)
+        if self.shuffle_data_pathes:
+            shuffle(self.midi_pathes)
+        if self.max_n_midi_files:
+            self.midi_pathes = self.midi_pathes[:self.max_n_midi_files]
         assert len(self.midi_pathes) != 0, \
             f"No MIDI file found in {self.conf.dataset_dir}"
 
     def setup(self, stage: Optional[str] = None):
-
-        # create tokenizer
-        self.tokenizer = self.conf.tokenizer_class()
         self.dataset = MidiDataset(self.midi_pathes, self.tokenizer)
         n_train = int(len(self.dataset) * 0.7)
         n_val = int(len(self.dataset) * 0.2)

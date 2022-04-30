@@ -21,15 +21,11 @@ EncodingName = Literal["remi", "cpword", "midi-like", "octuple-mono", "mumidi"]
 
 
 class MusicVAEConfig:
-    def __init__(self,
-                 dataset_dir: str,
-                 encoding_method: EncodingName,
-                 hparams: Namespace,
-                 ):
-        assert os.path.exists(dataset_dir),\
-            f"{dataset_dir} isn't exist"
-        self.dataset_dir = dataset_dir
-        self.tokenizer_class = encodings[encoding_method]
+    def __init__(self, hparams: Namespace):
+        assert os.path.isdir(
+            hparams.dataset_dir), f"{hparams.dataset_dir} isn't exist"
+        self.dataset_dir = hparams.dataset_dir
+        self.tokenizer_type = encodings[hparams.encoding_name]
         self.hparams = hparams
 
 

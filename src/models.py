@@ -1,6 +1,6 @@
 from argparse import Namespace
 from turtle import forward
-from typing import Tuple
+from typing import List, Tuple
 
 import torch
 import torch.nn as nn
@@ -9,6 +9,10 @@ from miditok import MIDITokenizer
 from pytorch_lightning import LightningModule
 from torch import Tensor as T
 from torch import nn
+from torch.distributions.kl import kl_divergence
+from torch.distributions.normal import Normal
+from torch.nn.functional import binary_cross_entropy
+
 from src.config import MusicVAEConfig
 
 
@@ -17,7 +21,7 @@ class LSTMEncoder(nn.Module):
                  latent_size: int = 512,
                  hidden_size: int = 2048,
                  embedding_size: int = 128):
-        super().__init__()
+        super(LSTMEncoder, self).__init__()
         self.encoder = nn.Embedding(num_embeddings=len(tokenizer.vocab),
                                     embedding_dim=embedding_size,
                                     padding_idx=0)
@@ -43,77 +47,96 @@ class HierarchicalLSTMDecoder(nn.Module):
                  output_size: int = 256,
                  conductor_max_len: int = 16,  # n of bars
                  decoder_max_len: int = 256):  # n of tokens for each bar
-        super().__init__()
-        self.fc = F.tanh(nn.Linear(latent_size, output_size))
+        super(HierarchicalLSTMDecoder, self).__init__()
+        self.fc = nn.Linear(latent_size, output_size)
         # First-level LSTM decoder
         self.conductor = nn.LSTM(input_size=output_size,
                                  hidden_size=hidden_size,
                                  num_layers=2,
                                  batch_first=True)
         # Sub-sequence LSTM decoder
-        self.decoder = nn.LSTM(input_size=output_size, output_size=output_size)
+        self.decoder = nn.LSTM(input_size=output_size,
+                               hidden_size=hidden_size,
+                               batch_first=True)
         self.output = nn.Linear(output_size, len(tokenizer.vocab))
+
+        self.output_size = output_size
+        self.conductor_max_len = conductor_max_len
+        self.decoder_max_len = decoder_max_len
 
     def forward(self, z: T) -> T:
         # TODO atsuya: implement hierarchical decoding
-        output: T = torch.tensor([])  # [batch, seq]
-        for sample in range(z.size(0)):  # sample: [1, seq, latent_size]
-            chunk: T = torch.tensor([])
-            decoder_init = torch.zeros()
-            _, (conductor_out, _) = self.conductor(
-                self.fc(z))  # conductor_out: [1, output_size]
+        output: T = torch.tensor([[]])  # [batch, segment_seq]
+        # conductor_out: [1, output_size]
+        _, (conductor_out, _) = self.conductor(F.tanh(self.fc(z)))
+        for segment_idx in range(self.conductor_max_len):
             self.decoder.hidden_state = conductor_out
-            _, (dec_c, dec_d) = self.decoder()
-            logit = self.output(dec_c)
-            F.softmax(logit)
-        return z
+            _input = torch.zeros(
+                z.size(0), self.decoder_max_len, self.output_size)
+            decoder_out, (_, _) = self.decoder(_input)  # [batch, output_dim]
+            results: T = torch.tensor([[]])
+            for token_idx in range(decoder_out.size(1)):
+                result = self.sample(decoder_out[:, token_idx, :])  # [batch]]
+                output = torch.cat([output, result], 1)  # [batch, seq_len]
+        return output
 
-    def sample(self, logit: T) -> T:
+    def sample(self, logit: T, _type="argmax") -> T:
         # TODO atsuya: implement sampling methods (temperature, top_k, top_p)
-        return logit
+        results = torch.argmax(self.output(logit), dim=1)
+        return results
 
 
 class LtMusicVAE(LightningModule):
-    def __init__(self, tokenizer: MIDITokenizer, hparams: Namespace):
-        super().__init__()
-        self.learning_rate = hparams.learning_rate
+    def __init__(self, tokenizer: MIDITokenizer, config: MusicVAEConfig):
+        super(LtMusicVAE, self).__init__()
+        self.learning_rate = config.hparams.learning_rate
         self.encoder = LSTMEncoder(tokenizer)
         self.decoder = HierarchicalLSTMDecoder(tokenizer, )
 
-    def forward(self, x: T) -> T:
+    def forward(self, x: T) -> Tuple[T, T, T, T]:
         mu, sigma = self.encoder(x)
         z = self.reparametrize(mu, sigma)
         x = self.decoder(z)
-        return x
+        return (x, z, mu, sigma)
 
-    def reconstruction_loss(self, x: T) -> T:
-        # TODO atsuya: implement
-        return x
+    def elbo(self, pred, target, mu, sigma, free_bits=256) -> Tuple[T, T]:
+        """
+        Evidence Lower Bound
+        Return KL Divergence and KL Regularization using free bits
+        """
+        # Reconstruction error
+        # Pytorch cross_entropy combines LogSoftmax and NLLLoss
+        likelihood = -binary_cross_entropy(pred, target, reduction='sum')
+        # Regularization error
+        sigma_prior = torch.tensor([1], dtype=torch.float)
+        mu_prior = torch.tensor([0], dtype=torch.float)
+        p = Normal(mu_prior, sigma_prior)
+        q = Normal(mu, sigma)
+        kl_div = kl_divergence(q, p)
+        elbo = torch.mean(likelihood) - torch.max(
+            torch.mean(kl_div) - free_bits, torch.tensor([0], dtype=torch.float))
+        return -elbo, kl_div.mean()
 
     def reparametrize(self, mu: T, sigma: T) -> T:
         eps = torch.randn(mu.shape)
         return mu + eps * torch.exp(0.5 * sigma)
 
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        logits = self(x)
-        loss = F.nll_loss(logits, y)
-        self.log("train_loss", loss, prog_bar=True)
-        return loss
+    def training_step(self, batch: T, batch_idx: int) -> T:
+        x, z, mu, sigma = self(batch)
+        elbo_loss, kl_loss = self.elbo(x, batch, mu, sigma)
+        self.log("train_loss", elbo_loss, prog_bar=True)
+        return elbo_loss
 
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        logits = self(x)
-        loss = F.nll_loss(logits, y)
+    def validation_step(self, batch: T, batch_idx: int) -> T:
+        x, z, mu, sigma = self(batch)
+        elbo_loss, kl_loss = self.elbo(x, batch, mu, sigma)
+        self.log("val_loss", elbo_loss, prog_bar=True)
+        return elbo_loss
 
-        # Calling self.log will surface up scalars for you in TensorBoard
-        self.log("val_loss", loss, prog_bar=True)
-        return loss
-
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch: T, batch_idx: int) -> T:
         # Here we just reuse the validation_step for testing
         return self.validation_step(batch, batch_idx)
 
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> torch.optim.Optimizer:
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
