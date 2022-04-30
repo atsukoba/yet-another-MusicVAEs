@@ -20,6 +20,7 @@ def split_instruments(song: MidiFile) -> List[MidiFile]:
     tracks: List[MidiFile] = []
     for inst in song.instruments:
         m = MidiFile()
+        m.max_tick = song.max_tick
         m.ticks_per_beat = song.ticks_per_beat
         m.tempo_changes = song.tempo_changes
         m.time_signature_changes = song.time_signature_changes
@@ -43,6 +44,7 @@ def extract_drums(song: MidiFile) -> Optional[List[MidiFile]]:
 
 def extract_target_part(song: MidiFile,
                         target: InstrumentTarget) -> Optional[List[MidiFile]]:
+    """ NOTES: if extracting drums track, call `extract_drums` instead """
     if target == "melody":
         target_names = ["Piano", "Synth Lead", "Organ"]
     elif target == "bass":
@@ -54,9 +56,13 @@ def extract_target_part(song: MidiFile,
         target_range = INSTRUMENT_CLASSES_RANGES[target_name]
         target_programs += list(range(target_range[0], target_range[1]+1))
     extracted_midi: List[MidiFile] = []
+
     for inst in song.instruments:
-        if inst.program in target_programs:
+        inst: Instrument = inst
+        # filter instrument by program number or name description
+        if not inst.is_drum and (inst.program in target_programs or target in inst.name):
             m = MidiFile()
+            m.max_tick = song.max_tick
             m.ticks_per_beat = song.ticks_per_beat
             m.tempo_changes = song.tempo_changes
             m.time_signature_changes = song.time_signature_changes
@@ -70,8 +76,7 @@ def get_multitrack_n_bars(tokenizer: MIDITokenizer,
                           n_bars: int = 4,
                           n_bars_stride: Optional[int] = None,
                           n_notes_threshold: Optional[int] = None,
-                          n_instruments_threshold: int = 2,
-                          beat_res: int = 8) -> List[MidiFile]:
+                          n_instruments_threshold: int = 2) -> List[MidiFile]:
     """
     returns list of Midifile samples that separated into
     single track and chunk of bars with given length

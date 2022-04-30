@@ -25,7 +25,8 @@ class MusicVAEConfig:
         assert os.path.isdir(
             hparams.dataset_dir), f"{hparams.dataset_dir} isn't exist"
         self.dataset_dir = hparams.dataset_dir
-        self.tokenizer_type = encodings[hparams.encoding_name]
+        self.tokenizer_type = encodings[hparams.encoding_method]
+        self.batchsize = hparams.batchsize
         self.hparams = hparams
 
 

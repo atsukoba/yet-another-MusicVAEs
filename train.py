@@ -46,7 +46,7 @@ def main(args: argparse.Namespace):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(
         description="Basic settings and hyper-parameters for training the model")
-    argparser.add_argument("-e", "--encoding_name", type=_check_encoding_methods,
+    argparser.add_argument("-e", "--encoding_method", type=_check_encoding_methods,
                            default="remi",
                            help=f"encoding methods: {get_args(EncodingName)}")
     argparser.add_argument("-d", "--dataset_dir", type=str,
@@ -59,6 +59,8 @@ if __name__ == "__main__":
                            help=f"select target inst: {get_args(InstrumentTarget)}")
     argparser.add_argument("--max_midi_files",  type=int,
                            default=10000, help="n of midi files")
+    argparser.add_argument("--batchsize",  type=int,
+                           default=32, help="batch size")
     argparser.add_argument("--learning_rate",  type=float,
                            default=1e-4, help="learning rate")
     argparser.add_argument("--epochs", type=int,
