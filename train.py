@@ -33,9 +33,9 @@ def main(args: argparse.Namespace):
     trainer = Trainer(gpus=1,
                       max_epochs=config.hparams.epochs,
                       default_root_dir=(f"model_checkpoints/{config.hparams.target_instrument}" +
-                                        f"__{config.tokenizer_type}" +
-                                        f"__{config.hparams.max_midi_files}midis"),
-                      progress_bar_refresh_rate=20)
+                                        f"-{config.hparams.n_bars}bars" +
+                                        f"__{config.hparams.encoding_method}" +
+                                        f"__{config.hparams.max_midi_files}-midi-files"))
 
     if trainer.logger:
         trainer.logger.log_hyperparams(args)
@@ -57,6 +57,8 @@ if __name__ == "__main__":
                            type=_check_inst_target,
                            default="melody",
                            help=f"select target inst: {get_args(InstrumentTarget)}")
+    argparser.add_argument("--n_bars",  type=int,
+                           default=16, help="n of bars")
     argparser.add_argument("--max_midi_files",  type=int,
                            default=10000, help="n of midi files")
     argparser.add_argument("--batchsize",  type=int,
@@ -67,5 +69,13 @@ if __name__ == "__main__":
                            default=20, help="n of epochs")
     argparser.add_argument("--dropout", type=float,
                            default=0.2, help="dropout rate")
+    argparser.add_argument("--latent_space_size", type=int,
+                           default=512, help="decoder hidden dimention")
+    argparser.add_argument("--encoder_hidden_size", type=int,
+                           default=2048, help="encoder hidden dimention")
+    argparser.add_argument("--decoder_hidden_size", type=int,
+                           default=1024, help="decoder hidden dimention")
+    argparser.add_argument("--decoder_feed_forward_size", type=int,
+                           default=512, help="decoder feed forward size")
     args = argparser.parse_args()
     main(args)
