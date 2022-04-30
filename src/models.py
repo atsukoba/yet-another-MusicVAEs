@@ -97,8 +97,8 @@ class HierarchicalLSTMDecoder(LightningModule):
                 last_decoder_c = decoder_c
                 pred_out = self.output(decoder_out[:, 0, :])
                 result = F.softmax(pred_out, 1).view(batch_size,
-                                                      1,
-                                                      pred_out.size(1))
+                                                     1,
+                                                     pred_out.size(1))
                 output.append(result)
         return torch.cat(output, dim=1).to(self.device)
 
@@ -112,8 +112,14 @@ class LtMusicVAE(LightningModule):
     def __init__(self, tokenizer: MIDITokenizer, config: MusicVAEConfig):
         super(LtMusicVAE, self).__init__()
         self.learning_rate = config.hparams.learning_rate
-        self.encoder = LSTMEncoder(tokenizer)
-        self.decoder = HierarchicalLSTMDecoder(tokenizer, )
+        self.encoder = LSTMEncoder(tokenizer,
+                                   latent_size=config.hparams.latent_space_size,
+                                   hidden_size=config.hparams.encoder_hidden_size)
+        self.decoder = HierarchicalLSTMDecoder(tokenizer,
+                                               output_size=config.hparams.decoder_feed_forward_size,
+                                               hidden_size=config.hparams.decoder_hidden_size,
+                                               latent_size=config.hparams.latent_space_size,
+                                               conductor_max_len=config.hparams.n_bars)
 
     def forward(self, x: T) -> Tuple[T, T, T, T]:
         mu, sigma = self.encoder(x)
@@ -131,11 +137,17 @@ class LtMusicVAE(LightningModule):
         # [batch, seq_len, n_vocab] -> [batch, n_vocab, seq_len]
         likelihood = nll_loss(pred.transpose(1, 2), target, ignore_index=0)
         # Regularization error
+        # TODO: handle negative sigma
+        try:
+            q_z = Normal(mu, torch.exp(sigma))
+        except ValueError as e:
+            print("mu: ", mu)
+            print("sigma: ", sigma)
+            raise e
         sigma_prior = torch.tensor([1], dtype=torch.float).to(self.device)
         mu_prior = torch.tensor([0], dtype=torch.float).to(self.device)
-        p = Normal(mu_prior, sigma_prior)
-        q = Normal(mu, torch.exp(sigma))
-        kl_div = kl_divergence(q, p)
+        p_z = Normal(mu_prior, sigma_prior)
+        kl_div = kl_divergence(q_z, p_z)
         elbo = torch.mean(likelihood) - torch.max(
             torch.mean(kl_div) - free_bits, torch.tensor([0], dtype=torch.float).to(self.device))
         return -elbo, kl_div.mean()

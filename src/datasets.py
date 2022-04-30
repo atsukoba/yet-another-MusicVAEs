@@ -139,8 +139,10 @@ class MidiDataModule(LightningDataModule):
             f"No MIDI file found in {self.conf.dataset_dir}"
 
     def setup(self, stage: Optional[str] = None):
-        self.dataset = MidiDataset(
-            self.midi_pathes, self.tokenizer, max_seq_length=self.max_seq_length)
+        self.dataset = MidiDataset(self.midi_pathes,
+                                   self.tokenizer,
+                                   bar_length=self.conf.hparams.n_bars,
+                                   max_seq_length=self.max_seq_length)
         n_train = int(len(self.dataset) * 0.7)
         n_val = int(len(self.dataset) * 0.2)
         n_test = len(self.dataset) - (n_train + n_val)
