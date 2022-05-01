@@ -148,13 +148,17 @@ class MidiDataModule(LightningDataModule):
     def train_dataloader(self):
         return DataLoader(self.dataset_train,
                           batch_size=self.batch_size,
-                          shuffle=True)
+                          shuffle=True, pin_memory=True)
 
     def val_dataloader(self):
-        return DataLoader(self.dataset_val, batch_size=self.batch_size)
+        return DataLoader(self.dataset_val,
+                          batch_size=self.batch_size,
+                          pin_memory=True)
 
     def test_dataloader(self):
-        return DataLoader(self.dataset_test, batch_size=self.batch_size)
+        return DataLoader(self.dataset_test,
+                          batch_size=self.batch_size,
+                          pin_memory=True)
 
     def teardown(self, stage: Optional[str] = None):
         # Used to clean-up when the run is finished
