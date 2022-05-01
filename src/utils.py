@@ -4,7 +4,7 @@ from typing import List, Literal, Optional
 import _pickle as cPickle
 from miditok import MIDITokenizer
 from miditok.constants import INSTRUMENT_CLASSES_RANGES, MIDI_INSTRUMENTS
-from miditoolkit import Instrument, MidiFile, Note
+from miditoolkit import Instrument, MidiFile
 from miditoolkit.midi.utils import example_midi_file
 from note_seq import plot_sequence
 from note_seq.protobuf.music_pb2 import NoteSequence

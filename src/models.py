@@ -1,6 +1,4 @@
-from argparse import Namespace
-from turtle import forward
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
@@ -11,7 +9,7 @@ from torch import Tensor as T
 from torch import nn
 from torch.distributions.kl import kl_divergence
 from torch.distributions.normal import Normal
-from torch.nn.functional import binary_cross_entropy, nll_loss
+from torch.nn.functional import nll_loss
 
 from src.config import MusicVAEConfig
 

@@ -1,9 +1,8 @@
 from itertools import groupby
-from typing import Dict, List, Literal, Optional, Type
+from typing import List, Optional, Type
 
 from miditok import (REMI, CPWord, Event, MIDILike, MIDITokenizer, MuMIDI,
                      OctupleMono)
-from miditoolkit import Instrument, MidiFile, Note
 
 
 def _split_to_bars_remi(tokens: List[int],
