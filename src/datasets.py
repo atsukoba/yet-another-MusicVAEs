@@ -1,19 +1,15 @@
-from lib2to3.pgen2.tokenize import tokenize
 import multiprocessing as mp
 import os
 from concurrent.futures import Future, ProcessPoolExecutor
 from glob import glob
-from logging import debug, info
+from logging import debug
 from random import shuffle
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Dict, List, Optional
 
 import torch
 from miditok import MIDITokenizer
 from miditoolkit import MidiFile
 from pytorch_lightning import LightningDataModule
-from sklearn.semi_supervised import SelfTrainingClassifier
-from torch import Tensor as T
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 

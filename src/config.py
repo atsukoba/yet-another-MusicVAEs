@@ -1,9 +1,8 @@
 import os
 from argparse import Namespace
-from collections import namedtuple
 from typing import Dict, Literal, Type, Union
 
-from miditok import REMI, CPWord, MIDILike, MIDITokenizer, MuMIDI, OctupleMono
+from miditok import REMI, CPWord, MIDILike, MuMIDI, OctupleMono
 
 encodings: Dict[str, Union[
     Type[REMI], Type[CPWord],
