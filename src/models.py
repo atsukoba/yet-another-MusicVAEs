@@ -67,6 +67,7 @@ class HierarchicalLSTMDecoder(LightningModule):
         self.hidden_size = hidden_size
         self.conductor_max_len = conductor_max_len
         self.decoder_max_len = decoder_max_len
+        self.vocab_size = len(tokenizer.vocab)
 
     def forward(self, z: T) -> T:
         # TODO atsuya: implement hierarchical decoding
@@ -80,25 +81,30 @@ class HierarchicalLSTMDecoder(LightningModule):
                                    torch.tanh(self.fc(z))]).to(self.device))  # 2 layers LSTM
         conductor_out, (_, _) = self.conductor(_cond_input, _cond_init)
 
-        output: List[T] = []  # [batch, segment_seq]
-        last_decoder_c: T = torch.rand(
-            2, batch_size, self.hidden_size).to(self.device)
+        output: T = torch.zeros(batch_size,
+                                self.conductor_max_len * self.decoder_max_len,
+                                self.vocab_size).to(self.device)  # [batch, segment_seq]
+        last_decoder_c: T = torch.rand(2,
+                                       batch_size,
+                                       self.hidden_size).to(self.device)
         for segment_idx in range(self.conductor_max_len):
-            results: T = torch.tensor([[]])
-            for token_idx in range(self.decoder_max_len):
+            current_idx_start = segment_idx * self.decoder_max_len
+            for idx in range(self.decoder_max_len):
                 # concat last hidden and concuctor out
                 _input = torch.cat(
                     [torch.tanh(self.fc_2(conductor_out[:, segment_idx, :])),
-                     torch.tanh(self.fc_2(last_decoder_c.mean(dim=0)))], dim=1
+                     torch.tanh(self.fc_2(last_decoder_c.mean(dim=0)))],
+                    dim=1
                 ).view(batch_size, 1, self.output_size)
                 decoder_out, (decoder_c, _) = self.decoder(_input)
                 last_decoder_c = decoder_c
                 pred_out = self.output(decoder_out[:, 0, :])
-                result = F.softmax(pred_out, 1).view(batch_size,
-                                                     1,
-                                                     pred_out.size(1))
-                output.append(result)
-        return torch.cat(output, dim=1).to(self.device)
+                result = nn.LogSoftmax(1)(pred_out).view(batch_size,
+                                                         1,
+                                                         self.vocab_size)
+                output[:, current_idx_start +
+                       idx:current_idx_start + idx + 1, :] = result
+        return output
 
     def sample(self, logit: T, _type="argmax") -> T:
         # TODO atsuya: implement sampling methods (temperature, top_k, top_p)
@@ -125,7 +131,7 @@ class LtMusicVAE(LightningModule):
         x = self.decoder(z)
         return (x, z, mu, sigma)
 
-    def elbo(self, pred: T, target: T, mu: T, sigma: T, free_bits=256) -> Tuple[T, T]:
+    def elbo(self, pred: T, target: T, mu: T, sigma: T, beta=0.05) -> Tuple[T, T]:
         """
         Evidence Lower Bound
         Return KL Divergence and KL Regularization using free bits
@@ -133,37 +139,34 @@ class LtMusicVAE(LightningModule):
         # Reconstruction error
         # Pytorch cross_entropy combines LogSoftmax and NLLLoss
         # [batch, seq_len, n_vocab] -> [batch, n_vocab, seq_len]
-        likelihood = nll_loss(pred.transpose(1, 2), target, ignore_index=0)
+        likelihood = nll_loss(pred.transpose(1, 2), target,
+                              ignore_index=0, reduction="sum")
         # Regularization error
         # TODO: handle negative sigma
-        try:
-            q_z = Normal(mu, torch.exp(sigma))
-        except ValueError as e:
-            print("mu: ", mu)
-            print("sigma: ", sigma)
-            raise e
-        sigma_prior = torch.tensor([1], dtype=torch.float).to(self.device)
-        mu_prior = torch.tensor([0], dtype=torch.float).to(self.device)
-        p_z = Normal(mu_prior, sigma_prior)
+        q_z = Normal(mu, sigma.exp())
+        p_z = Normal(torch.zeros_like(mu), torch.ones_like(sigma))
         kl_div = kl_divergence(q_z, p_z)
-        elbo = torch.mean(likelihood) - torch.max(
-            torch.mean(kl_div) - free_bits, torch.tensor([0], dtype=torch.float).to(self.device))
-        return -elbo, kl_div.mean()
+        elbo = torch.mean(likelihood) - beta * kl_div.mean()
+        return elbo, kl_div.mean()
 
     def reparametrize(self, mu: T, sigma: T) -> T:
         eps = torch.randn(mu.shape).to(self.device)
         return mu + eps * torch.exp(0.5 * sigma)
 
     def training_step(self, batch: Dict[str, T], batch_idx: int) -> T:
-        x, z, mu, sigma = self(batch["input_ids"])
-        elbo_loss, kl_loss = self.elbo(x, batch["input_ids"], mu, sigma)
-        self.log("train_loss", elbo_loss, prog_bar=True)
+        x = batch["input_ids"].to(self.device)
+        y, z, mu, sigma = self(x)
+        elbo_loss, kl_loss = self.elbo(y, x, mu, sigma)
+        self.log("train_loss", elbo_loss, prog_bar=True,
+                 on_step=True, on_epoch=True)
         return elbo_loss
 
     def validation_step(self, batch: Dict[str, T], batch_idx: int) -> T:
-        x, z, mu, sigma = self(batch["input_ids"])
-        elbo_loss, kl_loss = self.elbo(x, batch["input_ids"], mu, sigma)
-        self.log("val_loss", elbo_loss, prog_bar=True)
+        x = batch["input_ids"].to(self.device)
+        y, z, mu, sigma = self(x)
+        elbo_loss, kl_loss = self.elbo(y, x, mu, sigma)
+        self.log("val_loss", elbo_loss, prog_bar=True,
+                 on_step=True, on_epoch=True)
         return elbo_loss
 
     def test_step(self, batch: Dict[str, T], batch_idx: int) -> T:
